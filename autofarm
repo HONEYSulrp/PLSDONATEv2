@@ -1,0 +1,303 @@
+-- Modified PlsDonate Autofarm v2
+repeat task.wait() until game:IsLoaded()
+if game.PlaceId ~= 8737602449 and game.PlaceId ~= 8943844393 then return end
+if getgenv().loadedPlsDonateModded then return end
+getgenv().loadedPlsDonateModded = true
+
+local Players = game:GetService("Players")
+local PathfindingService = game:GetService("PathfindingService")
+local TextChatService = game:GetService("TextChatService")
+local lp = Players.LocalPlayer
+
+-- ─── CHAT (works with new TextChatService) ───────────────────────────────────
+local function safeChat(msg)
+    pcall(function()
+        local channel = TextChatService.TextChannels:FindFirstChild("RBXGeneral")
+        if channel then
+            channel:SendAsync(msg)
+        end
+    end)
+end
+
+local function typewriterChat(msg)
+    task.wait(0.5 + math.random() * 1.2)
+    safeChat(msg)
+end
+
+-- ─── CONFIG ──────────────────────────────────────────────────────────────────
+local BOOTH_TEXT       = "help me buy my dream avatar which costs 500 robuxs"
+local PROXIMITY_RANGE  = 25
+local BOT_DENY_RANGE   = 11
+local WALK_BACK_DELAY  = 4
+local SCAN_INTERVAL    = 60
+local BEG_INTERVAL     = 180
+
+local BOT_RESPONSES = {
+    "yeah lol maybe",
+    "u caught me 😭",
+    "ok u got me haha",
+    "maybe i am maybe i aint 😂",
+    "does it matter pls donate either way",
+    "lmaooo ok fine",
+    "bro just donate 1 robux 😭😭",
+}
+local LEADERBOARD_MESSAGES = {
+    "yo @NAME u raised so much could u spare a lil for me 😭",
+    "@NAME bro ur clearly generous pls donate to me too",
+    "seeing @NAME on the board with that bag... pls throw me some too",
+    "@NAME legend move pls donate to me i need 500 robux for my avatar",
+    "bro @NAME is out here winning pls help me too 😭",
+}
+local BEG_MESSAGES = {
+    "pls donate i need 500 robux for my dream avatar 😭",
+    "just 1 robux helps pls donate !!",
+    "bro im so close to my dream avatar pls donate",
+    "whos feeling generous today pls donate 500 robux goal",
+    "help me get my dream avatar it only costs 500 robux 🙏",
+}
+
+-- ─── HELPERS ─────────────────────────────────────────────────────────────────
+local function getRoot(char)
+    return char and char:FindFirstChild("HumanoidRootPart")
+end
+local function getHumanoid(char)
+    return char and char:FindFirstChildOfClass("Humanoid")
+end
+
+local boothPosition = nil
+
+-- ─── PATHFIND ────────────────────────────────────────────────────────────────
+local function walkTo(targetPos)
+    local char = lp.Character
+    if not char then return end
+    local hum = getHumanoid(char)
+    local root = getRoot(char)
+    if not hum or not root then return end
+
+    local path = PathfindingService:CreatePath({
+        AgentHeight = 5, AgentRadius = 2, AgentCanJump = true,
+    })
+    local ok = pcall(function() path:ComputeAsync(root.Position, targetPos) end)
+    if ok and path.Status == Enum.PathStatus.Success then
+        for _, wp in ipairs(path:GetWaypoints()) do
+            if wp.Action == Enum.PathWaypointAction.Jump then
+                hum:ChangeState(Enum.HumanoidStateType.Jumping)
+            end
+            hum:MoveTo(wp.Position)
+            local done = false
+            local c = hum.MoveToFinished:Connect(function() done = true end)
+            local t = 0
+            while not done and t < 3 do task.wait(0.1); t += 0.1 end
+            c:Disconnect()
+        end
+    else
+        hum:MoveTo(targetPos)
+        hum.MoveToFinished:Wait()
+    end
+end
+
+local function faceToward(pos)
+    local root = getRoot(lp.Character)
+    if not root then return end
+    root.CFrame = CFrame.lookAt(root.Position, Vector3.new(pos.X, root.Position.Y, pos.Z))
+end
+
+local function returnToBooth()
+    if boothPosition then walkTo(boothPosition) end
+end
+
+-- ─── PROXIMITY WALK ───────────────────────────────────────────────────────────
+local inProximityWalk = false
+
+local function tryApproachPlayer(plr)
+    if inProximityWalk then return end
+    local myRoot = getRoot(lp.Character)
+    local theirChar = plr.Character
+    if not theirChar then return end
+    local theirRoot = getRoot(theirChar)
+    if not myRoot or not theirRoot then return end
+
+    inProximityWalk = true
+    task.spawn(function()
+        typewriterChat("yo could u donate pls " .. plr.DisplayName .. " 🙏")
+    end)
+
+    local dir = (theirRoot.Position - myRoot.Position).Unit
+    local stopPos = theirRoot.Position - dir * 4
+    walkTo(stopPos)
+    if theirRoot and theirRoot.Parent then faceToward(theirRoot.Position) end
+
+    local waited = 0
+    while waited < WALK_BACK_DELAY do
+        task.wait(0.5); waited += 0.5
+        if not theirRoot or not theirRoot.Parent then break end
+        if (theirRoot.Position - myRoot.Position).Magnitude > PROXIMITY_RANGE * 1.5 then break end
+    end
+
+    returnToBooth()
+    inProximityWalk = false
+end
+
+-- ─── LEADERBOARD SCAN ────────────────────────────────────────────────────────
+local function scanLeaderboard()
+    local targets = {}
+    for _, plr in ipairs(Players:GetPlayers()) do
+        if plr ~= lp and plr:FindFirstChild("leaderstats") then
+            local raised = plr.leaderstats:FindFirstChild("Raised")
+            if raised and raised.Value >= 500 then
+                table.insert(targets, {plr = plr, raised = raised.Value})
+            end
+        end
+    end
+    table.sort(targets, function(a, b) return a.raised > b.raised end)
+    for i = 1, math.min(2, #targets) do
+        local t = targets[i]
+        local msg = string.gsub(LEADERBOARD_MESSAGES[math.random(1,#LEADERBOARD_MESSAGES)], "@NAME", "@"..t.plr.DisplayName)
+        task.wait(2 + math.random())
+        typewriterChat(msg)
+    end
+end
+
+-- ─── WEBHOOK ─────────────────────────────────────────────────────────────────
+local WEBHOOK = "https://discord.com/api/webhooks/1574515949741150249/e09LTwEMvE7kZzRNBFNYI7OK3XUKuPilyDn4cUBz1l5VREBh3yvkGc_XnMZCeIpYFwMd"
+local httprequest = (syn and syn.request) or http_request or request
+
+local function webhook(msg)
+    pcall(function()
+        httprequest({
+            Url = WEBHOOK,
+            Body = game:GetService("HttpService"):JSONEncode({content = msg}),
+            Method = "POST",
+            Headers = {["content-type"] = "application/json"}
+        })
+    end)
+end
+
+-- ─── BOOTH ───────────────────────────────────────────────────────────────────
+local unclaimed = {}
+local function findUnclaimed()
+    for _, v in pairs(lp.PlayerGui.MapUIContainer.MapUI.BoothUI:GetChildren()) do
+        if v:FindFirstChild("Details") and v.Details.Owner.Text == "unclaimed" then
+            table.insert(unclaimed, tonumber(string.match(tostring(v), "%d+")))
+        end
+    end
+end
+pcall(findUnclaimed)
+
+local Remotes = require(game:GetService("ReplicatedStorage").Remotes)
+
+local function claimBooth()
+    if #unclaimed == 0 then return end
+    pcall(function() Remotes.Event("ClaimBooth"):InvokeServer(unclaimed[1]) end)
+end
+
+local function setBoothText()
+    pcall(function() Remotes.Event("SetBoothText"):FireServer(BOOTH_TEXT, "booth") end)
+end
+
+local function walkToBooth()
+    for _, v in ipairs(workspace.BoothInteractions:GetChildren()) do
+        if v:GetAttribute("BoothSlot") == unclaimed[1] then
+            boothPosition = (v.CFrame * CFrame.new(0,0,3)).Position
+            walkTo(boothPosition)
+            break
+        end
+    end
+end
+
+claimBooth()
+walkToBooth()
+setBoothText()
+
+task.spawn(function() while true do task.wait(30); setBoothText() end end)
+
+-- ─── PROXIMITY SCANNER ────────────────────────────────────────────────────────
+task.spawn(function()
+    while true do
+        task.wait(2)
+        if not inProximityWalk then
+            local myRoot = getRoot(lp.Character)
+            if myRoot then
+                for _, plr in ipairs(Players:GetPlayers()) do
+                    if plr ~= lp then
+                        local tr = getRoot(plr.Character)
+                        if tr and (tr.Position - myRoot.Position).Magnitude <= PROXIMITY_RANGE then
+                            task.spawn(tryApproachPlayer, plr)
+                            break
+                        end
+                    end
+                end
+            end
+        end
+    end
+end)
+
+-- ─── LEADERBOARD SCANNER ─────────────────────────────────────────────────────
+task.spawn(function()
+    task.wait(10)
+    while true do scanLeaderboard(); task.wait(SCAN_INTERVAL) end
+end)
+
+-- ─── RANDOM BEG ──────────────────────────────────────────────────────────────
+task.spawn(function()
+    while true do
+        task.wait(BEG_INTERVAL)
+        typewriterChat(BEG_MESSAGES[math.random(1,#BEG_MESSAGES)])
+    end
+end)
+
+-- ─── CHAT LISTENER (new TextChatService) ─────────────────────────────────────
+TextChatService.MessageReceived:Connect(function(msg)
+    local sender = msg.TextSource
+    if not sender then return end
+    local plr = Players:GetPlayerByUserId(sender.UserId)
+    if not plr or plr == lp then return end
+
+    local text = string.lower(msg.Text)
+    local myRoot = getRoot(lp.Character)
+    local theirRoot = getRoot(plr.Character)
+    if not myRoot or not theirRoot then return end
+    if (theirRoot.Position - myRoot.Position).Magnitude > BOT_DENY_RANGE then return end
+
+    task.wait(1.2 + math.random() * 0.6)
+
+    if string.find(text, "bot") then
+        typewriterChat(BOT_RESPONSES[math.random(1,#BOT_RESPONSES)])
+    elseif text == "hello" or text == "hi" or text == "hey" or text == "sup" then
+        local g = {"hey 👋","heyyy","hi hi 😊","sup","hello!!"}
+        typewriterChat(g[math.random(1,#g)])
+    elseif string.find(text, "how much") then
+        typewriterChat("my dream avatar costs 500 robux 😭 anything helps!!")
+    elseif string.find(text, "?") then
+        local r = {"yes","yeah","yep","i think so lol"}
+        typewriterChat(r[math.random(1,#r)])
+    end
+end)
+
+-- ─── DONATION HANDLER ────────────────────────────────────────────────────────
+task.spawn(function()
+    local ls = lp:WaitForChild("leaderstats")
+    local raised = ls:WaitForChild("Raised")
+    local prev = raised.Value
+    raised.Changed:Connect(function(new)
+        if new > prev then
+            local diff = new - prev
+            local thanks = {"TYSM bro 😭🙏","omg thank u so much!!","ur amazing tysm","bro u r a legend ty","thank u thank u!!"}
+            task.wait(0.8 + math.random()*0.5)
+            typewriterChat(thanks[math.random(1,#thanks)])
+            webhook("💰 Donated | +"..diff.."R$ | Total: "..new.."R$ | Account: "..lp.DisplayName.." ("..lp.Name..")")
+            task.spawn(function()
+                for _ = 1, diff do
+                    if lp.Character and getHumanoid(lp.Character) then
+                        getHumanoid(lp.Character):ChangeState("Jumping")
+                        task.wait(0.6)
+                    end
+                end
+            end)
+            setBoothText()
+        end
+        prev = new
+    end)
+end)
+
+print("[PlsDonate Modded v2] Loaded ✅")
